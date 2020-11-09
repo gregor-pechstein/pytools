@@ -111,14 +111,22 @@ def TotalEnergy1(path,T0,B0,phi, Pe,dz, dx,beta_e,jpar,n):
 
     Grad_perpPhi=np.stack(np.gradient(phi,dx,dz,axis=[1,3]))
 
-    E_perpKin = m_i * n *0.5 * np.sum((Grad_perpPhi/B0)**2,axis=0)
+    E_perpKin =0.5 * n *m_i /B0**2 np.sum((Grad_perpPhi)**2,axis=0)
 
 
     E_Term=3/2*Pe
 
 
-    E_dichte=E_perpKin+E_Term+E_Field
+    E_dichte=E_perpKin+E_Term
     E=np.trapz(np.trapz(E_dichte,dx=dz),dx=dx,axis=1)
+
+
+    ETerm_f=3/2*np.abs(np.fft.fft(Pe,axis=-1))
+    EperpKin_f=np.fft.fft(E_perpKin,axis=-1)
+
+    E_fftsum= EperpKin_f+ETerm_f
+    E_fft=np.trapz(E_fftsum,dx=dx, axis=1)
+    
 
     plt.rc('font', family='Serif')
     plt.figure(figsize=(8,4.5))
@@ -212,7 +220,24 @@ def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Dim2):
 
 
 
+def Fourier_spectrum(E_Term,E_Field,E_parIon,E_perpKin,Dim2,dx):
 
+     if (Dim2==True):
+         ETerm_f=np.fft.fft(E_Term,axis=-1)
+         EperpKin_f=np.fft.fft(E_perpKin,axis=-1)
+
+         E_fftsum= EperpKin_f+ETerm_f
+     else:
+         ETerm_f=np.fft.fft2(E_Term,axes=(-2,-1))
+         EField_f=np.fft.fft2(E_Field,axes=(-2,-1))
+         EparIon_f=np.fft.fft2(E_parIon,axes=(-2,-1))
+         EperpKin_f=np.fft.fft2(E_perpKin,axes=(-2,-1))
+    
+         E_fftsum= EperpKin_f+EparIon_f+ETerm_f+EField_f
+   
+     E_fft=np.trapz(E_fftsum,dx=dx, axis=1)
+
+     return E_fft
 
 
 
