@@ -25,7 +25,7 @@ def loading_data(path,version):
     Pe = collect("Pe", path=path, info=False) * n0 * T0 * e
 
     
-    phi = collect("phi", path=path, info=False) 
+    phi = collect("phi", path=path, info=False) * T0 
 
     
     t_array = collect("t_array", path=path, info=False)/wci
@@ -111,7 +111,7 @@ def TotalEnergy1(path,T0,B0,phi, Pe,dz, dx,beta_e,jpar,n):
 
     Grad_perpPhi=np.stack(np.gradient(phi,dx,dz,axis=[1,3]))
 
-    E_perpKin =0.5 * n *m_i /B0**2 np.sum((Grad_perpPhi)**2,axis=0)
+    E_perpKin =0.5 * n *m_i /B0**2* np.sum((Grad_perpPhi)**2,axis=0)
 
 
     E_Term=3/2*Pe
@@ -190,18 +190,34 @@ def TotalEnergy(path,T0,B0,phi, Pi,Pe,n0,dz, dx,beta_e,psi,Vi,jpar,n):
 def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Dim2):
 
     if (Dim2==True):
-        Grad_Phi=np.stack( np.gradient(phi,dx,dz,axis=[1,3]))
-        d_n=np.stack(np.gradient(n,dx,dz,axis=[1,3]))
+        dn_dr=np.zeros(n.shape)
+        phi_dz=np.zeros(n.shape)
+        for t in np.arange(0,n.shape[0]): 
+             dn_dr[t,...] = np.abs( np.gradient(n[t,...],dx,axis=0))
+             phi_dz[t,...] =np.abs( np.gradient(phi[t,...],dz,axis=2))
+
+        dn_dr_mean=np.mean(dn_dr[50:,...],axis=0)
+        V_ExB_n_mean= np.mean(phi_dz[50:,...]*n[50:,...]/B0,axis=0)
+
+    #Grad_Phi=np.stack( np.gradient(phi,dx,dz,axis=[1,3]))
+    #d_n=np.stack(np.gradient(n,dx,dz,axis=[1,3]))  
+      #d_n=np.gradient(np.mean(n[50:,:,:,:],axis=0),dx,axis=1))
+      #Grad_Phi= np.gradient(phi,dz,axis=3)
     else:    
         Grad_Phi=np.stack( np.gradient(phi,dx,dy,dz,axis=[1,2,3]))
         d_n=np.stack(np.gradient(n,dx,dy,dz,axis=[1,2,3]))
 
     V_ExB=Grad_Phi/B0
-    absV_ExB=np.sqrt(V_ExB[0,:,:,:,:]**2+V_ExB[1,:,:,:,:]**2)
+    # absV_ExB=np.sqrt(V_ExB[0,:,:,:,:]**2+V_ExB[1,:,:,:,:]**2)
 
-    absd_n=np.sqrt(d_n[0,:,:,:,:]**2+d_n[1,:,:,:,:]**2)
+    # absd_n=np.sqrt(d_n[0,:,:,:,:]**2+d_n[1,:,:,:,:]**2)
 
-    D=np.mean(np.multiply(absV_ExB,n),axis=0)/np.mean(absd_n,axis=0)
+
+    mean_Vn=np.mean(np.multiply(V_ExB[50:,:,:,:],n[50:,:,:,:]),axis=0)
+    mean_dn=np.mean(d_n[50:,:,:,:],axis=0)
+    D=np.divide(mean_Vn,mean_dn)
+   # D= np.mean((phi_dz[50:,...]*n[50:,...])/(B0*dn_dr[50:,...]),axis=0) 
+   # D=np.mean(np.multiply(V_ExB,n),axis=1)/np.mean(d_n,axis=1)
 
     plt.rc('font', family='Serif')
     plt.contourf(D[:,0,:].T);
