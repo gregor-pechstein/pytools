@@ -1,5 +1,6 @@
 from boutdata import collect
 import numpy as np
+from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
 def loading_data(path,version):
@@ -34,7 +35,7 @@ def loading_data(path,version):
     R0 = collect('R0', path=path, info=False) * rhos
     B0 = collect('Bnorm', path=path, info=False)
     dx = collect('dx', path=path, info=False) * rhos * rhos
-    dz = collect('dz', path=path, info=False)
+    dz = collect('dz', path=path, info=False) * rhos *R0
     dy = collect('dy', path=path, info=False) 
     dy =dy[0,0]
     Lx = ((dx.shape[0] - 4) * dx[0, 0]) / (R0)
@@ -195,11 +196,14 @@ def TotalEnergy(path,T0,B0,phi, Pi,Pe,n0,dz, dx,beta_e,psi,Vi,jpar,n):
 
 
 def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
-
+    def FitTanh(x, a, b, c,d):
+        return a * np.tanh(-b *( x - d)) + c
+    
     if (Dim2==True):
         dn_dr=np.zeros(n.shape)
         phi_dz=np.zeros(n.shape)
-        dn_drABS=np.zeros(n.shape)
+        dnFit_dr=np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])  
+        dnFitTanh_dr=np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]]) 
         phi_dzABS=np.zeros(n.shape)
 
         for t in np.arange(0,n.shape[0]): 
@@ -214,16 +218,40 @@ def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
         for zz in np.arange(0,n.shape[-1]):
             z1 = np.polyfit(Lx_steps,nMean[:,0,zz],5)
             f = np.poly1d(z1)
-            nMeanFit[:, zz] = f(Lx_steps[:]) 
+            nMeanFit[:, zz] = f(Lx_steps[:])
 
         dn_dr_mean=np.gradient(nMeanFit,axis=0)
 
+
+        
+        nFit = np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])
+        nFitTanh = np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])
+        for tt in np.arange(0,n.shape[0]-50):
+            for zz in np.arange(0,n.shape[-1]):
+                #polinomial fit
+                z1 = np.polyfit(Lx_steps,n[50+tt,:,0,zz],5)
+                f = np.poly1d(z1)
+                nFit[tt,:, zz] = f(Lx_steps[:])
+                 
+                #tanh fit
+                popt, pcov = curve_fit(FitTanh, Lx_steps,n[50+tt,:,0,zz], bounds=([0.1*1e18,10,0.5*1e18,Lx_steps[0]],[1.5*1e18,100,1.5*1e18,Lx_steps[-1]]))
+                nFitTanh[tt,:, zz] = FitTanh(Lx_steps, *popt)
+                 
+        for t in np.arange(0,n.shape[0]-50):
+            dnFit_dr[t,...] =  np.gradient(nFit[t,...],dx,axis=0) 
+            dnFitTanh_dr[t,...] =  np.gradient(nFitTanh[t,...],dx,axis=0)
+
+        dnFit_dr_mean=np.mean(dnFit_dr,axis=0)
+        dnFitTanh_dr_mean=np.mean(dnFitTanh_dr,axis=0)
+        
         V_ExB_n_mean= np.mean(phi_dz[50:,...]*n[50:,...]/B0,axis=0)
         D=np.divide(V_ExB_n_mean[:,0,:],dn_dr_mean)
+        DFit=np.divide(V_ExB_n_mean[:,0,:],dnFit_dr_mean)        
+        DTanh=np.divide(V_ExB_n_mean[:,0,:],dnFitTanh_dr_mean)
         
-        dn_dr_meanABS=np.mean(dn_drABS[50:,...],axis=0)
-        V_ExB_n_meanABS= np.mean(phi_dzABS[50:,...]*n[50:,...]/B0,axis=0)
-        D_ABS=np.divide(V_ExB_n_meanABS,dn_dr_meanABS)
+        #dn_dr_meanABS=np.mean(dn_drABS[50:,...],axis=0)
+        #V_ExB_n_meanABS= np.mean(phi_dzABS[50:,...]*n[50:,...]/B0,axis=0)
+        #D_ABS=np.divide(V_ExB_n_meanABS,dn_dr_meanABS)
         #Different approch
         
         #Grad_Phi=np.stack( np.gradient(phi,dx,dz,axis=[1,3]))
@@ -258,23 +286,13 @@ def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
     # D= np.mean((phi_dz[50:,...]*n[50:,...])/(B0*dn_dr[50:,...]),axis=0) 
     # D=np.mean(np.multiply(V_ExB,n),axis=1)/np.mean(d_n,axis=1)
     """
-    plt.rc('font', family='Serif') 
-    plt.figure(figsize=(8,4.5)) 
-    plt.plot(Lz_steps,V_ExB_n_mean[323,0,:],'v', label=r'$<V_{E\times B} n>$') 
-    plt.plot(Lz_steps,V_ExB_n_meanABS[323,0,:],'v', label=r'$<|V_{E\times B}| n> $') 
-    plt.grid(alpha=0.5) 
-    plt.xlabel(r'z [m]', fontsize=18) 
-    plt.ylabel(r' $V_{E\times B} n$', fontsize=18) 
-    plt.tick_params('both', labelsize=14) 
-    plt.tight_layout() 
-    plt.legend(fancybox=True, loc='upper left', framealpha=0, fontsize= 12) 
-    plt.savefig(path+'/V_ExB.png', dpi=300) 
-    plt.show()
+
 
     plt.rc('font', family='Serif') 
     plt.figure(figsize=(8,4.5)) 
-    plt.plot(Lz_steps,dn_dr_mean[323,0,:],'v', label=r'$<\frac{\partial n}{\partial x}>$') 
-    plt.plot(Lz_steps,dn_dr_meanABS[323,0,:],'v', label=r'$<|\frac{\partial n}{\partial x}| > $') 
+    plt.plot(Lz_steps,dn_dr_mean[323,:],'v', label=r'$<\frac{\partial n}{\partial x}>$') 
+    plt.plot(Lz_steps,dnFitTanh_dr_mean[323,:],'x', label=r'$<|\frac{\partial n}{\partial x}| > $') 
+    plt.plot(Lz_steps,dnFit_dr_mean[323,:],'o', label=r'$<|\frac{\partial n}{\partial x}| > $') 
     plt.grid(alpha=0.5) 
     plt.xlabel(r'z [m]', fontsize=18) 
     plt.ylabel(r' $\frac{\partial n}{\partial x} $', fontsize=18) 
@@ -285,7 +303,7 @@ def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
     plt.show()    
     
     plt.rc('font', family='Serif')
-    plt.contourf(D[50:400,0,50:400].T);
+    plt.contourf(D.T);
     plt.colorbar();
     plt.xlabel(r'x ', fontsize=18)
     plt.ylabel(r'z', fontsize=18)
@@ -295,18 +313,29 @@ def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
     plt.show()
 
     plt.rc('font', family='Serif')
-    plt.contourf(D_ABS[50:400,0,50:400].T);
+    plt.contourf(DFit.T);
     plt.colorbar();
     plt.xlabel(r'x ', fontsize=18)
     plt.ylabel(r'z', fontsize=18)
     plt.tick_params('both', labelsize=14)
     plt.tight_layout()
-    plt.savefig(path+'/D_ABS.png', dpi=300)
+    plt.savefig(path+'/DFit.png', dpi=300)
+    plt.show()
+
+    plt.rc('font', family='Serif')
+    plt.contourf(DTanh.T);
+    plt.colorbar();
+    plt.xlabel(r'x ', fontsize=18)
+    plt.ylabel(r'z', fontsize=18)
+    plt.tick_params('both', labelsize=14)
+    plt.tight_layout()
+    plt.savefig(path+'/DTanh.png', dpi=300)
     plt.show()
 
 
   
-    return D, D_ABS, dn_dr_mean,dn_dr_meanABS,V_ExB_n_mean, V_ExB_n_meanABS
+    return D, DFit, DTanh,V_ExB_n_mean[:,0,:],dn_dr_mean,dnFitTanh_dr_mean,dnFit_dr_mean,dnFitTanh_dr,dnFit_dr,nMeanFit,nFitTanh,nFit
+
 
 
 
