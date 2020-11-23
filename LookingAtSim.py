@@ -3,6 +3,58 @@ import numpy as np
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
+def LookingAtSim(path,load,twindow):
+
+    if (load==True):
+        n, Pe,n0,T0,B0,phi,dt, t_array,beta_e,Jpar,dx,dz,dy,Vort,Lz,Lx,Lx_steps,Lz_steps=loading_data(path,1)
+    else:
+        n, Pe,n0,T0,B0,phi,dt, t_array,beta_e,Jpar,dx,dz,dy,Vort,Lz,Lx,Lx_steps,Lz_steps= load_npz(path,1)
+
+    D,V_ExB_n_mean,drFit_mean,dnFit_dr,nFit=DifusionCoeficent(path,phi[twindow[0]:twindow[1],:,:,:],n[twindow[0]:twindow[1],:,:,:],B0,dx, dy, dz,Lz_steps,Lx_steps)
+
+    Te = np.divide(Pe,n)
+    Chi_e,V_ExB_n_mean,drChi_eFit_mean,dChi_eFit_dr,Chi_eFit=DifusionCoeficent(path,phi[twindow[0]:twindow[1],:,:,:],Te[twindow[0]:twindow[1],:,:,:],B0,dx, dy, dz,Lz_steps,Lx_steps)
+    
+    return D,V_ExB_n_mean,dnFit_dr_mean,dnFit_dr,nFit,Chi_e,V_ExB_n_mean,drChi_eFit_mean,dChi_eFit_dr,Chi_eFit, n, phi, dx, dz
+
+def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps):
+    def FitTanh(x, a, b, c,d):
+        return a * np.tanh(-b *( x - d)) + c
+    
+    phi_dz=np.zeros([n.shape[0],n.shape[1],n.shape[-1]])  
+    dnFitTanh_dr=np.zeros([n.shape[0],n.shape[1],n.shape[-1]]) 
+    nFitTanh = np.zeros([n.shape[0],n.shape[1],n.shape[-1]])
+
+    for tt in np.arange(0,n.shape[0]):
+        for zz in np.arange(0,n.shape[-1]):
+            #tanh fit
+            popt, pcov = curve_fit(FitTanh, Lx_steps,n[tt,:,0,zz], bounds=([0.1*1e18,10,0.5*1e18,Lx_steps[0]],[3.5*1e18,100,3.5*1e18,Lx_steps[-1]]))
+            nFitTanh[tt,:, zz] = FitTanh(Lx_steps, *popt)
+                 
+    for t in np.arange(0,n.shape[0]): 
+        dnFitTanh_dr[t,...] =  np.gradient(nFitTanh[t,...],dx,axis=0)
+        phi_dz[t,...] = np.gradient(phi[t,:,0,:],dz,axis=1)
+            
+    dnFitTanh_dr_mean=np.mean(dnFitTanh_dr,axis=0)
+        
+    V_ExB_n_mean= np.mean(phi_dz*n[:,:,0,:]/B0,axis=0)       
+    DTanh=np.divide(V_ExB_n_mean,dnFitTanh_dr_mean)
+        
+
+    plt.rc('font', family='Serif')
+    plt.contourf(DTanh.T);
+    plt.colorbar();
+    plt.xlabel(r'x ', fontsize=18)
+    plt.ylabel(r'z', fontsize=18)
+    plt.tick_params('both', labelsize=14)
+    plt.tight_layout()
+    plt.savefig(path+'/DTanh.png', dpi=300)
+    plt.show()
+  
+    return DTanh,V_ExB_n_mean,dnFitTanh_dr_mean,dnFitTanh_dr,nFitTanh
+
+
+        
 def loading_data(path,version):
 
     """
@@ -34,14 +86,14 @@ def loading_data(path,version):
 
     R0 = collect('R0', path=path, info=False) * rhos
     B0 = collect('Bnorm', path=path, info=False)
-    dx = collect('dx', path=path, info=False) * rhos * rhos
-    dz = collect('dz', path=path, info=False) * rhos *R0
+    dx = collect('dx', path=path, info=False) * rhos * rhos /R0
+    dz = collect('dz', path=path, info=False) * R0
     dy = collect('dy', path=path, info=False) 
     dy =dy[0,0]
-    Lx = ((dx.shape[0] - 4) * dx[0, 0]) / (R0)
-    Lx_steps =np.cumsum(dx)/R0
-    Lz = dz * R0 * n.shape[-1]
-    Lz_steps = np.cumsum(np.full(n.shape[-1],dz))*R0
+    Lx = ((dx.shape[0] - 4) * dx[0, 0]) 
+    Lx_steps =np.cumsum(dx)
+    Lz = dz  * n.shape[-1]
+    Lz_steps = np.cumsum(np.full(n.shape[-1],dz))
     dx=dx[0, 0]
    
     
@@ -61,11 +113,11 @@ def loading_data(path,version):
         NVi=collect('NVi',path=path,info=False) * n0 * Cs0
         VePsi=collect('VePsi',path=path,info=False)  / Cs0 / e *T0  
 
-        np.savez(path+'data.npz', n=n, Pe=Pe,Pi=Pi,n0=n0,T0=T0,B0=B0,phi=phi,dt=dt, t_array=t_array,psi=psi,psi_zero=psi_zero,external_field=external_field,beta_e=beta_e,Vi=Vi,NVi=NVi,Jpar=Jpar,dx=dx,dz=dz,dy=dy,Vort=Vort,VePsi=VePsi,Lz=Lz,Lx=Lx,Lx_steps=Lx_steps,Lz_steps=Lz_steps)
+        np.savez(path+'/data.npz', n=n, Pe=Pe,Pi=Pi,n0=n0,T0=T0,B0=B0,phi=phi,dt=dt, t_array=t_array,psi=psi,psi_zero=psi_zero,external_field=external_field,beta_e=beta_e,Vi=Vi,NVi=NVi,Jpar=Jpar,dx=dx,dz=dz,dy=dy,Vort=Vort,VePsi=VePsi,Lz=Lz,Lx=Lx,Lx_steps=Lx_steps,Lz_steps=Lz_steps)
 
         return n, Pe,Pi,n0,T0,B0,phi,dt, t_array,psi,psi_zero,external_field,beta_e,Vi,NVi,Jpar,dx,dz,dy,Vort,VePsi,Lz,Lx,Lx_steps,Lz_steps
     else:
-        np.savez(path+'data.npz', n=n, Pe=Pe,n0=n0,T0=T0,B0=B0,phi=phi,dt=dt, t_array=t_array,beta_e=beta_e,Jpar=Jpar,dx=dx,dz=dz,dy=dy,Vort=Vort,Lz=Lz,Lx=Lx,Lx_steps=Lx_steps,Lz_steps=Lz_steps)
+        np.savez(path+'/data.npz', n=n, Pe=Pe,n0=n0,T0=T0,B0=B0,phi=phi,dt=dt, t_array=t_array,beta_e=beta_e,Jpar=Jpar,dx=dx,dz=dz,dy=dy,Vort=Vort,Lz=Lz,Lx=Lx,Lx_steps=Lx_steps,Lz_steps=Lz_steps)
 
         return n, Pe,n0,T0,B0,phi,dt, t_array,beta_e,Jpar,dx,dz,dy,Vort,Lz,Lx,Lx_steps,Lz_steps
 
@@ -195,146 +247,6 @@ def TotalEnergy(path,T0,B0,phi, Pi,Pe,n0,dz, dx,beta_e,psi,Vi,jpar,n):
 
 
 
-def DifusionCoeficent(path,phi,n,B0,dx, dy, dz,Lz_steps,Lx_steps,Dim2):
-    def FitTanh(x, a, b, c,d):
-        return a * np.tanh(-b *( x - d)) + c
-    
-    if (Dim2==True):
-        dn_dr=np.zeros(n.shape)
-        phi_dz=np.zeros(n.shape)
-        dnFit_dr=np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])  
-        dnFitTanh_dr=np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]]) 
-        phi_dzABS=np.zeros(n.shape)
-
-        for t in np.arange(0,n.shape[0]): 
-             #dn_drABS[t,...] = np.abs( np.gradient(n[t,...],dx,axis=0))
-             #phi_dzABS[t,...] =np.abs( np.gradient(phi[t,...],dz,axis=2))
-             #dn_dr[t,...] =  np.gradient(n[t,...],dx,axis=0)
-             phi_dz[t,...] = np.gradient(phi[t,...],dz,axis=2)
-
-
-        nMean = np.mean(n[50:,...],axis=0)
-        nMeanFit = np.zeros([n.shape[1],n.shape[-1]])
-        for zz in np.arange(0,n.shape[-1]):
-            z1 = np.polyfit(Lx_steps,nMean[:,0,zz],5)
-            f = np.poly1d(z1)
-            nMeanFit[:, zz] = f(Lx_steps[:])
-
-        dn_dr_mean=np.gradient(nMeanFit,axis=0)
-
-
-        
-        nFit = np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])
-        nFitTanh = np.zeros([n.shape[0]-50,n.shape[1],n.shape[-1]])
-        for tt in np.arange(0,n.shape[0]-50):
-            for zz in np.arange(0,n.shape[-1]):
-                #polinomial fit
-                z1 = np.polyfit(Lx_steps,n[50+tt,:,0,zz],5)
-                f = np.poly1d(z1)
-                nFit[tt,:, zz] = f(Lx_steps[:])
-                 
-                #tanh fit
-                popt, pcov = curve_fit(FitTanh, Lx_steps,n[50+tt,:,0,zz], bounds=([0.1*1e18,10,0.5*1e18,Lx_steps[0]],[1.5*1e18,100,1.5*1e18,Lx_steps[-1]]))
-                nFitTanh[tt,:, zz] = FitTanh(Lx_steps, *popt)
-                 
-        for t in np.arange(0,n.shape[0]-50):
-            dnFit_dr[t,...] =  np.gradient(nFit[t,...],dx,axis=0) 
-            dnFitTanh_dr[t,...] =  np.gradient(nFitTanh[t,...],dx,axis=0)
-
-        dnFit_dr_mean=np.mean(dnFit_dr,axis=0)
-        dnFitTanh_dr_mean=np.mean(dnFitTanh_dr,axis=0)
-        
-        V_ExB_n_mean= np.mean(phi_dz[50:,...]*n[50:,...]/B0,axis=0)
-        D=np.divide(V_ExB_n_mean[:,0,:],dn_dr_mean)
-        DFit=np.divide(V_ExB_n_mean[:,0,:],dnFit_dr_mean)        
-        DTanh=np.divide(V_ExB_n_mean[:,0,:],dnFitTanh_dr_mean)
-        
-        #dn_dr_meanABS=np.mean(dn_drABS[50:,...],axis=0)
-        #V_ExB_n_meanABS= np.mean(phi_dzABS[50:,...]*n[50:,...]/B0,axis=0)
-        #D_ABS=np.divide(V_ExB_n_meanABS,dn_dr_meanABS)
-        #Different approch
-        
-        #Grad_Phi=np.stack( np.gradient(phi,dx,dz,axis=[1,3]))
-        #d_n=np.stack(np.gradient(n,dx,dz,axis=[1,3]))
-    """     dn_dr_meanStack=np.mean(d_n[0,50:,...],axis=0) 
-        V_ExB_n_meanStack= np.mean(Grad_Phi[1,50:,...]*n[50:,...]/B0,axis=0)
-        D3=np.divide(V_ExB_n_meanStack,dn_dr_meanStack)
-
-        
-        Grad_PhiABS= np.sqrt(Grad_Phi[0,:,:,:,:]**2+Grad_Phi[1,:,:,:,:]**2)     
-        d_nABS=np.sqrt(d_n[0,:,:,:,:]**2+d_n[1,:,:,:,:]**2)
-
-        dn_dr_meanABSStack=np.mean(d_nABS[50:,...],axis=0) 
-        V_ExB_n_meanABSStack= np.mean(Grad_PhiABS[50:,...]*n[50:,...]/B0,axis=0)
-        D4=np.divide(V_ExB_n_meanABSStack,dn_dr_meanABSStack)
-
-        #d_n=np.gradient(np.mean(n[50:,:,:,:],axis=0),dx,axis=1))
-      #Grad_Phi= np.gradient(phi,dz,axis=3)
-    else:    
-        Grad_Phi=np.stack( np.gradient(phi,dx,dy,dz,axis=[1,2,3]))
-        d_n=np.stack(np.gradient(n,dx,dy,dz,axis=[1,2,3]))
-
-    #V_ExB=Grad_Phi/B0
-    # absV_ExB=np.sqrt(V_ExB[0,:,:,:,:]**2+V_ExB[1,:,:,:,:]**2)
-
-    # absd_n=np.sqrt(d_n[0,:,:,:,:]**2+d_n[1,:,:,:,:]**2)
-
-
-    #mean_Vn=np.mean(np.multiply(V_ExB[50:,:,:,:],n[50:,:,:,:]),axis=0)
-    #mean_dn=np.mean(d_n[50:,:,:,:],axis=0)
-    #D=np.divide(mean_Vn,mean_dn)
-    # D= np.mean((phi_dz[50:,...]*n[50:,...])/(B0*dn_dr[50:,...]),axis=0) 
-    # D=np.mean(np.multiply(V_ExB,n),axis=1)/np.mean(d_n,axis=1)
-    """
-
-
-    plt.rc('font', family='Serif') 
-    plt.figure(figsize=(8,4.5)) 
-    plt.plot(Lz_steps,dn_dr_mean[323,:],'v', label=r'$<\frac{\partial n}{\partial x}>$') 
-    plt.plot(Lz_steps,dnFitTanh_dr_mean[323,:],'x', label=r'$<|\frac{\partial n}{\partial x}| > $') 
-    plt.plot(Lz_steps,dnFit_dr_mean[323,:],'o', label=r'$<|\frac{\partial n}{\partial x}| > $') 
-    plt.grid(alpha=0.5) 
-    plt.xlabel(r'z [m]', fontsize=18) 
-    plt.ylabel(r' $\frac{\partial n}{\partial x} $', fontsize=18) 
-    plt.tick_params('both', labelsize=14) 
-    plt.tight_layout() 
-    plt.legend(fancybox=True, loc='upper left', framealpha=0, fontsize= 12) 
-    plt.savefig(path+'/dn_dr_mean.png', dpi=300) 
-    plt.show()    
-    
-    plt.rc('font', family='Serif')
-    plt.contourf(D.T);
-    plt.colorbar();
-    plt.xlabel(r'x ', fontsize=18)
-    plt.ylabel(r'z', fontsize=18)
-    plt.tick_params('both', labelsize=14)
-    plt.tight_layout()
-    plt.savefig(path+'/D.png', dpi=300)
-    plt.show()
-
-    plt.rc('font', family='Serif')
-    plt.contourf(DFit.T);
-    plt.colorbar();
-    plt.xlabel(r'x ', fontsize=18)
-    plt.ylabel(r'z', fontsize=18)
-    plt.tick_params('both', labelsize=14)
-    plt.tight_layout()
-    plt.savefig(path+'/DFit.png', dpi=300)
-    plt.show()
-
-    plt.rc('font', family='Serif')
-    plt.contourf(DTanh.T);
-    plt.colorbar();
-    plt.xlabel(r'x ', fontsize=18)
-    plt.ylabel(r'z', fontsize=18)
-    plt.tick_params('both', labelsize=14)
-    plt.tight_layout()
-    plt.savefig(path+'/DTanh.png', dpi=300)
-    plt.show()
-
-
-  
-    return D, DFit, DTanh,V_ExB_n_mean[:,0,:],dn_dr_mean,dnFitTanh_dr_mean,dnFit_dr_mean,dnFitTanh_dr,dnFit_dr,nMeanFit,nFitTanh,nFit
 
 
 
